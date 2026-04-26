@@ -18,9 +18,9 @@
     pip install -r requirements.txt
     ```
 
-3. **安装 PyTorch（CUDA 13.0）看自己cuda版本安装，50系装preview版本**
+3. **安装 PyTorch（CUDA 12.8）看自己cuda版本安装，50系装preview版本**
     ```bash
-    pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130
+    pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
     ```
 
 4. **安装 Ultralytics**
