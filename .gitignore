@@ -1,0 +1,44 @@
+# Python cache and environment
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.pdb
+*.egg-info/
+
+# Jupyter and VSCode
+.ipynb_checkpoints/
+.vscode/
+
+# Virtual environments
+env/
+.venv/
+venv/
+
+# Data and outputs
+dataset/
+runs/
+*.csv
+*.zip
+*.tar
+*.tar.gz
+*.h5
+*.ckpt
+*.pth
+*.pt
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Kaggle API token
+.kaggle/
+kaggle.json
+
+# Logs
+*.log
+
+# Ignore requirements freeze output
+requirements.txt
+!requirements.txt
