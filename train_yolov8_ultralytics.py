@@ -49,12 +49,7 @@ from ultralytics.utils.metrics import bbox_iou as _orig_bbox_iou
 
 
 def _inner_ciou(box1, box2, xywh=True, eps=1e-7):
-    """
-    完整重写 IoU 计算，使用与 bbox_iou 完全相同的广播规则，
-    因此输出形状一定与原始 bbox_iou 一致。
-    Inner-CIoU = IoU * exp(-rho^2 / c^2)
-    """
-    # ---- 转换 xywh → xyxy（与原始 bbox_iou 完全一致）----
+    # ---- 转换 xywh → xyxy ----
     if xywh:
         b1x1 = box1[..., 0] - box1[..., 2] / 2
         b1y1 = box1[..., 1] - box1[..., 3] / 2
@@ -67,35 +62,34 @@ def _inner_ciou(box1, box2, xywh=True, eps=1e-7):
     else:
         b1x1, b1y1, b1x2, b1y2 = box1[..., 0], box1[..., 1], box1[..., 2], box1[..., 3]
         b2x1, b2y1, b2x2, b2y2 = box2[..., 0], box2[..., 1], box2[..., 2], box2[..., 3]
-
     # ---- 交集面积 ----
     inter_w = (torch.min(b1x2, b2x2) - torch.max(b1x1, b2x1)).clamp(0)
     inter_h = (torch.min(b1y2, b2y2) - torch.max(b1y1, b2y1)).clamp(0)
     inter = inter_w * inter_h
-
     # ---- 并集面积 ----
     w1 = (b1x2 - b1x1).clamp(0)
     h1 = (b1y2 - b1y1).clamp(0)
     w2 = (b2x2 - b2x1).clamp(0)
     h2 = (b2y2 - b2y1).clamp(0)
     union = w1 * h1 + w2 * h2 - inter + eps
-
     iou = inter / union
-
-    # ---- 中心点距离平方（与原始 CIoU 完全一致）----
+    # ---- 中心点距离与外接矩形 ----
     cx1 = (b1x1 + b1x2) / 2
     cy1 = (b1y1 + b1y2) / 2
     cx2 = (b2x1 + b2x2) / 2
     cy2 = (b2y1 + b2y2) / 2
     rho2 = (cx1 - cx2) ** 2 + (cy1 - cy2) ** 2
-
-    # ---- 最小外接矩形对角线平方 ----
     cw = torch.max(b1x2, b2x2) - torch.min(b1x1, b2x1)
     ch = torch.max(b1y2, b2y2) - torch.min(b1y1, b2y1)
     c2 = cw ** 2 + ch ** 2 + eps
-
+    # ★ 必须补充宽高比惩罚项，否则退化严重
+    import math
+    v = (4 / math.pi ** 2) * (torch.atan(w2 / (h2 + eps)) - torch.atan(w1 / (h1 + eps))) ** 2
+    with torch.no_grad():
+        alpha = v / (1 - iou + v + eps)
     # ---- Inner-CIoU ----
-    return iou * torch.exp(-rho2 / c2)
+    # 采用乘法衰减的同时，减去宽高比惩罚
+    return iou * torch.exp(-rho2 / c2) - v * alpha
 
 
 def _patched_bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
@@ -119,42 +113,36 @@ loss_module.bbox_iou = _patched_bbox_iou
 # =========================================================
 def create_yaml(path="yolov8_custom.yaml"):
     yaml_content = """nc: 3
-
 backbone:
   # from  output          module       args
-  - [-1, 1, Conv, [16, 3, 2]]        #  0  -> 16
-  - [-1, 1, Conv, [32, 3, 2]]        #  1  -> 32
-  - [-1, 1, C2f, [32]]               #  2  -> 32
-  - [-1, 1, Conv, [64, 3, 2]]        #  3  -> 64
-  - [-1, 2, C2f, [64]]               #  4  -> 64
-  - [-1, 1, Conv, [128, 3, 2]]       #  5  -> 128
-  - [-1, 2, C2f, [128]]              #  6  -> 128
-  - [-1, 1, Conv, [256, 3, 2]]       #  7  -> 256
-  - [-1, 2, C2f, [256]]              #  8  -> 256
-  - [-1, 1, SPPF, [256, 5]]          #  9  -> 256
-
+    - [-1, 1, Conv, [16, 3, 2]]        #  0  -> 16
+    - [-1, 1, Conv, [32, 3, 2]]        #  1  -> 32
+    - [-1, 1, C2f, [32, True]]         #  2  -> 32 (去掉多余的1，True代表shortcut)
+    - [-1, 1, Conv, [64, 3, 2]]        #  3  -> 64
+    - [-1, 2, C2f, [64, True]]         #  4  -> 64
+    - [-1, 1, Conv, [128, 3, 2]]       #  5  -> 128
+    - [-1, 2, C2f, [128, True]]        #  6  -> 128
+    - [-1, 1, Conv, [256, 3, 2]]       #  7  -> 256
+    - [-1, 1, C2f, [256, True]]        #  8  -> 256
+    - [-1, 1, SPPF, [256, 5]]          #  9  -> 256
 head:
   - [-1, 1, nn.Upsample, [None, 2, 'nearest']]   # 10
   - [[-1, 6], 1, Concat, [1]]                     # 11
   - [-1, 1, C2f, [128]]                           # 12
   - [-1, 1, EMA, [128]]                           # 13
-
   - [-1, 1, nn.Upsample, [None, 2, 'nearest']]   # 14
   - [[-1, 4], 1, Concat, [1]]                     # 15
   - [-1, 1, C2f, [64]]                            # 16
   - [-1, 1, EMA, [64]]                            # 17
-
   - [-1, 1, Conv, [64, 3, 2]]                     # 18
   - [[-1, 13], 1, Concat, [1]]                    # 19
   - [-1, 1, C2f, [128]]                           # 20
   - [-1, 1, EMA, [128]]                           # 21
-
   - [-1, 1, Conv, [128, 3, 2]]                    # 22
   - [[-1, 9], 1, Concat, [1]]                     # 23
   - [-1, 1, C2f, [256]]                           # 24
   - [-1, 1, EMA, [256]]                           # 25
-
-  - [[17, 21, 25], 1, Detect, [nc]]               # 26
+  - [[17, 21, 25], 1, Detect, [nc]]               # 26 (严格对齐原版3头输出)
 """
     with open(path, "w", encoding="utf-8") as f:
         f.write(yaml_content.strip())
@@ -197,6 +185,7 @@ names:
 # 6. 主函数
 # =========================================================
 def main():
+
     yaml_path = create_yaml()
     data_path = r"C:\Users\Admin\Desktop\MedicalProject\dataset\rsna_yolo"
 
@@ -206,21 +195,35 @@ def main():
     print("Loss: bbox_iou patched -> Inner-CIoU")
     print("=" * 50)
 
-    model = YOLO(yaml_path)
+    # ★ 关键修改：从 YAML 构建模型，并强行加载 yolov8n.pt 的预训练权重
+    model = YOLO(yaml_path).load("yolov8n.pt")
 
     model.train(
         data=data_path,
         epochs=80,
-        imgsz=512,            # 8GB 显存跑 512 很轻松；想试 1024 可以，batch 降到 4
-        batch=4,             # ★ imgsz=512 时，8GB 可以跑 batch=16
-        device="0",           # ★ 使用 GPU
-        workers=0,            # ★ GPU 模式下 workers 可以开 4
+        imgsz=1024,           # 扩展为 1024
+        batch=4,              # 1024分辨率，batch降为4
+        device="0",           
+        workers=0,            # Colab环境可以开4
         patience=20,
         project="runs_rsna",
-        name="ema_innerciou", # ★ 实验名称，建议每次实验都修改，便于区分结果
+        name="ema_innerciou_1024_pretrained", # 修改实验名
         exist_ok=True,
         verbose=True,
+        # 建议补充以下参数，与原版绝对对齐
+        amp=True,
+        box=7.5,
+        cls=0.5,
+        dfl=1.5
     )
+    # # 指向中断时保存的 last.pt 权重文件路径
+    # last_pt_path = r"runs\detect\runs_rsna\ema_innerciou_1024_pretrained\weights\last.pt"
+    
+    # # 直接加载 last.pt，无需再指定 yaml 和原预训练权重
+    # model = YOLO(last_pt_path)
+    
+    # # 开启 resume=True，框架会自动继承中断时的 epoch、优化器状态、学习率等
+    # model.train(resume=True)
 
 
 if __name__ == "__main__":
