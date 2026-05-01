@@ -14,6 +14,8 @@ Lite-Medical YOLOv8m 模型训练脚本（改进版）
 作者: AI助手
 创建时间: 2026-04-28
 """
+import signal
+import sys
 import os
 import torch
 import torch.nn as nn
@@ -27,10 +29,12 @@ from ultralytics.utils.torch_utils import initialize_weights, intersect_dicts
 import warnings
 warnings.filterwarnings('ignore')
 
+os.environ["TQDM_DISABLE"] = "1"
+
 # === 配置参数 ===
 class Config:
     img_size = 1024                    # 输入分辨率：1024×1024
-    batch_size = 8                     # 根据GPU显存调整（建议A100 40GB以上）
+    batch_size = 16                     # 根据GPU显存调整（建议A100 40GB以上）
     epochs = 100
     data_yaml = '/home/cwangeu/MIA/rsna_yolo_data/data.yaml'  # 数据集配置文件路径
     pretrained_weights = './rsna-yolov8/yolov8m.pt'  # 官方预训练权重
@@ -216,6 +220,26 @@ class LiteMedTrainer(DetectionTrainer):
     def get_model(self, cfg=None, weights=None, verbose=True):
         return self.custom_model
 
+    def save_model(self):
+        import os
+        import torch
+
+        save_dir = os.path.join(self.save_dir, "weights")
+        os.makedirs(save_dir, exist_ok=True)
+
+        save_path = os.path.join(save_dir, "last_state_dict.pt")
+
+        torch.save({
+            "model_state_dict": self.model.state_dict(),
+            "epoch": getattr(self, "epoch", -1),
+            "optimizer": self.optimizer.state_dict() if self.optimizer else None,
+            "results": getattr(self, "final_metrics", None),
+        }, save_path)
+
+        print(f"✅ state_dict checkpoint saved to: {save_path}")
+
+        return True
+    
 # === 损失函数定制 ===
 def custom_loss_init(trainer):
     """修改训练器损失函数为S-CIoU + Focal Loss"""
@@ -312,6 +336,29 @@ def load_partial_weights(model, weight_path):
 
     return missing, unexpected
 
+# 应对superpod的shut down
+def save_checkpoint(trainer, filename="slurm_interrupt.pt"):
+    save_path = os.path.join(trainer.save_dir, "weights", filename)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    torch.save({
+        "model_state_dict": trainer.model.state_dict(),
+        "epoch": getattr(trainer, "epoch", -1),
+        "optimizer": trainer.optimizer.state_dict() if trainer.optimizer else None,
+        "results": getattr(trainer, "final_metrics", None),
+    }, save_path)
+
+    print(f"✅ 检查点已保存至: {save_path}")
+
+
+def register_signal_handler(trainer):
+    def handler(signum, frame):
+        print(f"\n⚠️ 收到系统信号 {signum}，正在保存检查点...")
+        save_checkpoint(trainer, filename="slurm_interrupt.pt")
+        sys.exit(0)
+
+    signal.signal(signal.SIGUSR1, handler)
+    signal.signal(signal.SIGTERM, handler)
 
 # === 主函数入口 ===
 def main():
@@ -337,6 +384,7 @@ def main():
     # print(f"🔁 成功加载预训练权重: {len(intersected)}/{len(model_state)} 参数已恢复")
 
     load_partial_weights(model, cfg.pretrained_weights)
+    # load_partial_weights(model, "./runs/detect/runs/train/lite_med_yolov8m/exp/weights/final.pt")
     
     # 冻结backbone部分（可选）
     # for name, param in model.model.named_parameters():
@@ -357,6 +405,10 @@ def main():
         name='exp',
         exist_ok=True,
         close_mosaic=0,  # 禁用Mosaic相关回调
+        verbose=False, 
+        patience=61,
+        save=True,
+        save_period=5,  # 每 5 个 epoch 保存一次
     )
 
     # 创建训练器
@@ -367,6 +419,8 @@ def main():
     )
     
     trainer.setup_model()
+
+    register_signal_handler(trainer)
     # custom_loss_init(trainer)
 
     # 执行训练
