@@ -42,3 +42,6 @@ kaggle.json
 # Ignore requirements freeze output
 requirements.txt
 !requirements.txt
+
+*.jpg
+*.yaml

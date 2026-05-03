@@ -113,9 +113,15 @@
 
 | 实验名称 | 训练轮数 | 图像尺寸 | Batch | 损失函数 | 注意力机制 | mAP50 | mAP50-95 | Recall | 备注 |
 |---|---|---|---|---|---|---|---|---|---|
-| yolov8_original_512 | - | 512 | - | 原版 | 无 | 0.440 | 0.182 | 0.471 | 官方原版YOLOv8 baseline |
+| yolov8_original_512 | - | 512 | - | 原版 | 无 | 0.440 | 0.182 | 0.471 | 官方原版YOLOv8 baseline（Colab环境） |
+| original_baseline | 54(早停) | 512 | 4 | CIoU | 无 | 0.354 | 0.145 | 0.342 | 官方YOLOv8n.pt预训练，本地RTX5060 |
+| original_baseline_b16 | 80 | 512 | 16 | CIoU | 无 | 0.377 | 0.158 | 0.437 | batch=16重跑baseline |
 | ema_innerciou_1024_pretrained | 80 | 1024 | - | Inner-CIoU | EMA | 0.309 | 0.125 | 0.337 | 加载预训练参数 |
 | ema_innerciou_512 | 80 | 512 | - | Inner-CIoU | EMA | 0.303 | 0.123 | 0.323 | 无预训练 |
+| cbam | 80 | 512 | 4 | CIoU | CBAM | 0.331 | 0.139 | 0.370 | Backbone P3/P4/P5添加CBAM |
+| cbam_fixed | 80 | 512 | 4 | CIoU | CBAM | 0.337 | 0.142 | 0.353 | 残差连接+reduction=8+仅P3/P4 |
+| cbam_fixed_v2 | 80 | 512 | 4 | CIoU | CBAM | 0.337 | 0.140 | 0.351 | 修复预训练权重映射(88%加载率) |
+| cbam_neck | 80 | 512 | 16 | CIoU | CBAM | 0.370 | 0.151 | 0.427 | CBAM放Neck(C2f后)，权重映射加载 |
 
 > 可持续补充更多实验配置，便于横向对比。
 

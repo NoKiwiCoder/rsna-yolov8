@@ -23,7 +23,7 @@ def create_yaml(path="yolov8_original.yaml"):
     # 直接使用 Ultralytics 官方默认的 YOLOv8n 架构字符串
     # 这样不需要依赖外部 yaml 文件，且保证是原版
     yaml_content = """
-nc: 3
+nc: 1
 scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'
   # [depth, width, max_channels]
   n: [0.33, 0.25, 1024]
@@ -81,8 +81,8 @@ def main():
     print("Loss: Default CIoU (Official)")
     print("=" * 50)
 
-    # 1. 初始化模型：使用我们定义的原版 yaml
-    model = YOLO(yaml_path) 
+    # 1. 初始化模型：直接加载官方预训练权重（等效于 YOLO("yolov8n.pt")）
+    model = YOLO("yolov8n.pt") 
     
     # 2. 训练模型
     # 关键：所有参数（epochs, imgsz, batch, patience）必须与改进版完全一致
@@ -90,7 +90,7 @@ def main():
         data=data_path,
         epochs=80,       # 保持一致
         imgsz=512,       # 保持一致
-        batch=4,         # 保持一致 (根据显存调整，但要和改进版一样)
+        batch=16,         # 保持一致 (根据显存调整，但要和改进版一样)
         device="0",      # 使用 GPU 0
         workers=0,       # Windows 下有时设为 0 避免报错，或设为 4
         patience=20,     # 早停 patience
